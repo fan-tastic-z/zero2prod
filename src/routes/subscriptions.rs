@@ -6,6 +6,7 @@ use axum::{
 };
 use chrono::Utc;
 use serde::Deserialize;
+use tracing::{error, info};
 use uuid::Uuid;
 
 use crate::startup::AppState;
@@ -34,9 +35,12 @@ pub async fn subscribe(
     .execute(state.db_pool.as_ref())
     .await;
     match res {
-        Ok(_) => Ok((StatusCode::OK).into_response()),
+        Ok(_) => {
+            info!("New subscriber detail have been saved");
+            Ok((StatusCode::OK).into_response())
+        }
         Err(e) => {
-            println!("Failed to execute query: {}", e);
+            error!("Failed to execute query: {}", e);
             Err(StatusCode::INTERNAL_SERVER_ERROR)
         }
     }

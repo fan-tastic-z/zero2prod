@@ -1,10 +1,13 @@
 use std::sync::Arc;
 
 use sqlx::postgres::PgPoolOptions;
-use zero2prod::{configuration::get_configuration, startup::run};
+
+use zero2prod::{configuration::get_configuration, startup::run, telemetry::init_tracing};
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
+    init_tracing();
+
     let configuration = get_configuration().expect("Failed to read configuration.");
     let connection_string = configuration.database.connection_string();
 

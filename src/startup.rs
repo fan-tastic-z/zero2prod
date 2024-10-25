@@ -9,6 +9,7 @@ use sqlx::{
     Executor, PgPool, Pool, Postgres,
 };
 use tokio::net::TcpListener;
+use tower_http::trace::TraceLayer;
 
 use crate::{
     configuration::DatabaseSettings,
@@ -25,6 +26,7 @@ pub fn app(state: AppState) -> Router {
         .route("/health", get(health))
         .route("/subscriptions", post(subscribe))
         .with_state(state)
+        .layer(TraceLayer::new_for_http())
 }
 
 pub async fn run(listener: TcpListener, db_pool: Arc<Pool<Postgres>>) -> std::io::Result<()> {

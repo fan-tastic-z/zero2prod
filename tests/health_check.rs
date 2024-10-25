@@ -5,13 +5,19 @@ use axum::{
     http::{self, header::CONTENT_LENGTH, HeaderValue, Request},
 };
 
+use once_cell::sync::Lazy;
 use sqlx::PgPool;
 use tower::ServiceExt;
 use uuid::Uuid;
 use zero2prod::{
     configuration::get_configuration,
     startup::{app, configuration_database, AppState},
+    telemetry::init_tracing,
 };
+
+static TRACING: Lazy<()> = Lazy::new(|| {
+    init_tracing();
+});
 
 #[tokio::test]
 async fn health_check_works() {
@@ -113,6 +119,7 @@ async fn subscribe_returns_a_422_when_data_is_missing() {
 }
 
 async fn spawn_app() -> PgPool {
+    Lazy::force(&TRACING);
     let mut configuration = get_configuration().expect("Failed to read configuration.");
     configuration.database.database_name = Uuid::new_v4().to_string();
     configuration_database(&configuration.database).await
