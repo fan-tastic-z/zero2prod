@@ -4,10 +4,8 @@ use axum::{
     routing::{get, post},
     Router,
 };
-use sqlx::{
-    postgres::{PgConnectOptions, PgPoolOptions},
-    Executor, PgPool, Pool, Postgres,
-};
+use sqlx::Connection;
+use sqlx::{Executor, PgConnection, PgPool, Pool, Postgres};
 use tokio::net::TcpListener;
 use tower_http::trace::TraceLayer;
 
@@ -36,26 +34,17 @@ pub async fn run(listener: TcpListener, db_pool: Arc<Pool<Postgres>>) -> std::io
 }
 
 pub async fn configuration_database(config: &DatabaseSettings) -> PgPool {
-    let options = PgConnectOptions::new()
-        .host(&config.host)
-        .port(config.port)
-        .username(&config.username)
-        .password(&config.password);
-    let pool = PgPoolOptions::new()
-        .max_connections(5)
-        .connect_with(options.clone())
+    let mut connection = PgConnection::connect_with(&config.without_db())
         .await
         .expect("Failed to connect to Postgres");
-
-    pool.execute(format!(r#"CREATE DATABASE "{}";"#, config.database_name).as_str())
+    connection
+        .execute(format!(r#"CREATE DATABASE "{}";"#, config.database_name).as_str())
         .await
         .expect("Failed to create database.");
-    let new_options = options.database(&config.database_name);
-    let db_pool = PgPoolOptions::new()
-        .max_connections(5)
-        .connect_with(new_options)
+
+    let db_pool = PgPool::connect_with(config.with_db())
         .await
-        .expect("Failed to connect to Postgres");
+        .expect("Failed to connect to Postgres.");
 
     sqlx::migrate!("./migrations")
         .run(&db_pool)

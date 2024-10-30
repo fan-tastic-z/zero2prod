@@ -1,6 +1,7 @@
-application_port: 9000
+application:
+  port: 9000
 database:
-  host: "127.0.0.1"
+  host: "localhost"
   port: 5432
   username: "postgres"
   password: "password"

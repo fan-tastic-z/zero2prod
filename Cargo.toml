@@ -15,7 +15,9 @@ name = "zero2prod"
 axum = { version = "0.7.7", features = ["macros", "tracing"] }
 chrono = { version = "0.4.38", features = ["serde"] }
 config = "0.14.1"
+secrecy = { version = "0.10", features = ["serde"] }
 serde = { version = "1.0.213", features = ["derive"] }
+serde-aux = "4.5.0"
 sqlx = { version = "0.8.2", features = [
     "postgres",
     "runtime-tokio",
