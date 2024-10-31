@@ -118,6 +118,45 @@ async fn subscribe_returns_a_422_when_data_is_missing() {
     }
 }
 
+#[tokio::test]
+async fn subscribe_returns_a_400_when_fields_are_present_but_empty() {
+    let db_pool = Arc::new(spawn_app().await);
+    let state = AppState { db_pool };
+    let app = app(state);
+
+    let test_cases = vec![
+        ("name=&email=fantastic.fun.zf@gmail.com", "empty name"),
+        ("name=fan-tastic.z&email=", "empty email"),
+        (
+            "name=fan-tastic.z&email=definitely-not-an-email",
+            "invalid email",
+        ),
+    ];
+    for (body, description) in test_cases {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(http::Method::POST)
+                    .uri("/subscriptions")
+                    .header(
+                        http::header::CONTENT_TYPE,
+                        mime::APPLICATION_WWW_FORM_URLENCODED.as_ref(),
+                    )
+                    .body(Body::new(body.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            400,
+            response.status().as_u16(),
+            "The API did not return a 200 OK when the payload was {}",
+            description
+        );
+    }
+}
+
 async fn spawn_app() -> PgPool {
     Lazy::force(&TRACING);
     let mut configuration = get_configuration().expect("Failed to read configuration.");
