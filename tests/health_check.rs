@@ -6,11 +6,11 @@ use axum::{
 };
 
 use once_cell::sync::Lazy;
-use sqlx::PgPool;
 use tower::ServiceExt;
 use uuid::Uuid;
 use zero2prod::{
     configuration::get_configuration,
+    email_client::EmailClient,
     startup::{app, configuration_database, AppState},
     telemetry::init_tracing,
 };
@@ -21,8 +21,7 @@ static TRACING: Lazy<()> = Lazy::new(|| {
 
 #[tokio::test]
 async fn health_check_works() {
-    let db_pool = Arc::new(spawn_app().await);
-    let state = AppState { db_pool };
+    let state = spawn_app().await;
     let app = app(state);
 
     let response = app
@@ -44,11 +43,8 @@ async fn health_check_works() {
 
 #[tokio::test]
 async fn subscribe_returns_a_200_for_valid_form_data() {
-    let db_pool = Arc::new(spawn_app().await);
-    let state = AppState {
-        db_pool: db_pool.clone(),
-    };
-    let app = app(state);
+    let state = spawn_app().await;
+    let app = app(state.clone());
     let body = "name=fan-tastic.z&email=fantastic.fun.zf@gmail.com";
 
     let response = app
@@ -74,7 +70,7 @@ async fn subscribe_returns_a_200_for_valid_form_data() {
         email: String,
     }
     let saved: Subscription = sqlx::query_as("SELECT email, name FROM subscriptions")
-        .fetch_one(db_pool.as_ref())
+        .fetch_one(state.db_pool.as_ref())
         .await
         .expect("Failed to fetch saved subscription.");
 
@@ -84,8 +80,7 @@ async fn subscribe_returns_a_200_for_valid_form_data() {
 
 #[tokio::test]
 async fn subscribe_returns_a_422_when_data_is_missing() {
-    let db_pool = Arc::new(spawn_app().await);
-    let state = AppState { db_pool };
+    let state = spawn_app().await;
     let app = app(state);
     let test_cases = vec![
         ("name=fan-tastic.z", "missing the email"),
@@ -120,8 +115,7 @@ async fn subscribe_returns_a_422_when_data_is_missing() {
 
 #[tokio::test]
 async fn subscribe_returns_a_400_when_fields_are_present_but_empty() {
-    let db_pool = Arc::new(spawn_app().await);
-    let state = AppState { db_pool };
+    let state = spawn_app().await;
     let app = app(state);
 
     let test_cases = vec![
@@ -157,9 +151,25 @@ async fn subscribe_returns_a_400_when_fields_are_present_but_empty() {
     }
 }
 
-async fn spawn_app() -> PgPool {
+async fn spawn_app() -> AppState {
     Lazy::force(&TRACING);
     let mut configuration = get_configuration().expect("Failed to read configuration.");
     configuration.database.database_name = Uuid::new_v4().to_string();
-    configuration_database(&configuration.database).await
+    let db_pool = Arc::new(configuration_database(&configuration.database).await);
+    let sender_email = configuration
+        .email_client
+        .sender()
+        .expect("Invalid sender email address");
+    let timeout = configuration.email_client.timeout();
+    let email_client = Arc::new(EmailClient::new(
+        configuration.email_client.base_url,
+        sender_email,
+        configuration.email_client.authorization_token,
+        timeout,
+    ));
+
+    AppState {
+        db_pool,
+        email_client,
+    }
 }

@@ -11,12 +11,14 @@ use tower_http::trace::TraceLayer;
 
 use crate::{
     configuration::DatabaseSettings,
+    email_client::EmailClient,
     routes::{health, subscribe},
 };
 
 #[derive(Clone)]
 pub struct AppState {
     pub db_pool: Arc<Pool<Postgres>>,
+    pub email_client: Arc<EmailClient>,
 }
 
 pub fn app(state: AppState) -> Router {
@@ -27,8 +29,15 @@ pub fn app(state: AppState) -> Router {
         .layer(TraceLayer::new_for_http())
 }
 
-pub async fn run(listener: TcpListener, db_pool: Arc<Pool<Postgres>>) -> std::io::Result<()> {
-    let state = AppState { db_pool };
+pub async fn run(
+    listener: TcpListener,
+    db_pool: Arc<Pool<Postgres>>,
+    email_client: Arc<EmailClient>,
+) -> std::io::Result<()> {
+    let state = AppState {
+        db_pool,
+        email_client,
+    };
     let app = app(state);
     axum::serve(listener, app).await
 }
