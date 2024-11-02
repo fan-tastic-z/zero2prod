@@ -10,8 +10,8 @@ use crate::helpers::spawn_app;
 
 #[tokio::test]
 async fn health_check_works() {
-    let state = spawn_app().await;
-    let app = app(state);
+    let test_app = spawn_app().await;
+    let app = app(test_app.app_state);
 
     let response = app
         .oneshot(

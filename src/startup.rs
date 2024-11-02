@@ -11,13 +11,14 @@ use tower_http::trace::TraceLayer;
 use crate::{
     configuration::{DatabaseSettings, Settings},
     email_client::EmailClient,
-    routes::{health, subscribe},
+    routes::{confirm, health, subscribe},
 };
 
 #[derive(Clone)]
 pub struct AppState {
     pub db_pool: Arc<Pool<Postgres>>,
     pub email_client: Arc<EmailClient>,
+    pub base_url: String,
 }
 
 impl AppState {
@@ -42,6 +43,7 @@ impl AppState {
         Self {
             db_pool,
             email_client,
+            base_url: configuration.application.base_url.clone(),
         }
     }
 }
@@ -50,6 +52,7 @@ pub fn app(state: AppState) -> Router {
     Router::new()
         .route("/health", get(health))
         .route("/subscriptions", post(subscribe))
+        .route("/subscriptions/confirm", get(confirm))
         .with_state(state)
         .layer(TraceLayer::new_for_http())
 }

@@ -4,9 +4,20 @@ use axum::{
     Router,
 };
 use tower::ServiceExt;
+use wiremock::{
+    matchers::{method, path},
+    Mock, ResponseTemplate,
+};
 use zero2prod::startup::app;
 
-use crate::helpers::spawn_app;
+use crate::helpers::{path_and_query, spawn_app};
+
+#[derive(sqlx::FromRow, Debug, PartialEq, Eq)]
+struct Subscription {
+    name: String,
+    email: String,
+    status: String,
+}
 
 pub async fn post_subscriptions(app: Router, body: &str) -> http::Response<Body> {
     app.oneshot(
@@ -26,31 +37,49 @@ pub async fn post_subscriptions(app: Router, body: &str) -> http::Response<Body>
 
 #[tokio::test]
 async fn subscribe_returns_a_200_for_valid_form_data() {
-    let state = spawn_app().await;
-    let app = app(state.clone());
+    let test_app = spawn_app().await;
+    let app = app(test_app.app_state.clone());
     let body = "name=fan-tastic.z&email=fantastic.fun.zf@gmail.com";
+
+    Mock::given(path("/email"))
+        .and(method("POST"))
+        .respond_with(ResponseTemplate::new(200))
+        .expect(1)
+        .mount(&test_app.email_server)
+        .await;
+
     let response = post_subscriptions(app, body).await;
 
-    assert!(response.status().is_success());
+    assert_eq!(200, response.status().as_u16());
+}
 
-    #[derive(sqlx::FromRow, Debug, PartialEq, Eq)]
-    struct Subscription {
-        name: String,
-        email: String,
-    }
-    let saved: Subscription = sqlx::query_as("SELECT email, name FROM subscriptions")
-        .fetch_one(state.db_pool.as_ref())
+#[tokio::test]
+async fn subscribe_persists_the_new_subscriber() {
+    let test_app = spawn_app().await;
+    let app = app(test_app.app_state.clone());
+    let body = "name=fan-tastic.z&email=fantastic.fun.zf@gmail.com";
+
+    Mock::given(path("/email"))
+        .and(method("POST"))
+        .respond_with(ResponseTemplate::new(200))
+        .expect(1)
+        .mount(&test_app.email_server)
+        .await;
+
+    post_subscriptions(app, body).await;
+    let saved: Subscription = sqlx::query_as("SELECT email, name, status FROM subscriptions")
+        .fetch_one(test_app.app_state.db_pool.as_ref())
         .await
         .expect("Failed to fetch saved subscription.");
-
     assert_eq!(saved.email, "fantastic.fun.zf@gmail.com");
     assert_eq!(saved.name, "fan-tastic.z");
+    assert_eq!(saved.status, "pending_confirmation");
 }
 
 #[tokio::test]
 async fn subscribe_returns_a_422_when_data_is_missing() {
-    let state = spawn_app().await;
-    let app = app(state);
+    let test_app = spawn_app().await;
+    let app = app(test_app.app_state);
     let test_cases = vec![
         ("name=fan-tastic.z", "missing the email"),
         ("email=fantastic.fun.zf@gmail.com", "missing the name"),
@@ -70,8 +99,8 @@ async fn subscribe_returns_a_422_when_data_is_missing() {
 
 #[tokio::test]
 async fn subscribe_returns_a_400_when_fields_are_present_but_empty() {
-    let state = spawn_app().await;
-    let app = app(state);
+    let test_app = spawn_app().await;
+    let app = app(test_app.app_state);
 
     let test_cases = vec![
         ("name=&email=fantastic.fun.zf@gmail.com", "empty name"),
@@ -90,4 +119,139 @@ async fn subscribe_returns_a_400_when_fields_are_present_but_empty() {
             description
         );
     }
+}
+
+#[tokio::test]
+async fn subscribe_sends_a_confirmation_email_for_valid_data() {
+    let test_app = spawn_app().await;
+    let app = app(test_app.app_state);
+    let body = "name=fan-tastic.z&email=fantastic.fun.zf@gmail.com";
+
+    Mock::given(path("/email"))
+        .and(method("POST"))
+        .respond_with(ResponseTemplate::new(200))
+        .expect(1)
+        .mount(&test_app.email_server)
+        .await;
+    let response = post_subscriptions(app, body).await;
+
+    assert_eq!(200, response.status().as_u16());
+}
+
+#[tokio::test]
+async fn subscribe_sends_a_confirmation_email_with_a_link() {
+    let test_app = spawn_app().await;
+    let app = app(test_app.app_state);
+    let body = "name=fan-tastic.z&email=fantastic.fun.zf@gmail.com";
+
+    Mock::given(path("/email"))
+        .and(method("POST"))
+        .respond_with(ResponseTemplate::new(200))
+        .expect(1)
+        .mount(&test_app.email_server)
+        .await;
+    post_subscriptions(app, body).await;
+
+    let email_request = &test_app.email_server.received_requests().await.unwrap()[0];
+    let body: serde_json::Value = serde_json::from_slice(&email_request.body).unwrap();
+
+    let get_link = |s: &str| {
+        let links: Vec<_> = linkify::LinkFinder::new()
+            .links(s)
+            .filter(|l| *l.kind() == linkify::LinkKind::Url)
+            .collect();
+        assert_eq!(links.len(), 1);
+        links[0].as_str().to_owned()
+    };
+    let html_link = get_link(body["HtmlBody"].as_str().unwrap());
+    let text_link = get_link(body["TextBody"].as_str().unwrap());
+    assert_eq!(html_link, text_link);
+}
+
+#[tokio::test]
+async fn confirmations_without_token_are_rejected_with_a_400() {
+    let test_app = spawn_app().await;
+    let app = app(test_app.app_state);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method(http::Method::GET)
+                .uri("/subscriptions/confirm")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status().as_u16(), 400);
+}
+
+#[tokio::test]
+async fn the_link_returned_by_subscribe_returns_a_200_if_called() {
+    let test_app = spawn_app().await;
+    let app_state = &test_app.app_state;
+    let app = app(app_state.clone());
+    let body = "name=fan-tastic.z&email=fantastic.fun.zf@gmail.com";
+
+    Mock::given(path("/email"))
+        .and(method("POST"))
+        .respond_with(ResponseTemplate::new(200))
+        .expect(1)
+        .mount(&test_app.email_server)
+        .await;
+    post_subscriptions(app.clone(), body).await;
+    let email_request = &test_app.email_server.received_requests().await.unwrap()[0];
+    let confirmation_links = test_app.get_confirmation_links(email_request);
+
+    let path_and_query = path_and_query(confirmation_links.html);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method(http::Method::GET)
+                .uri(path_and_query)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status().as_u16(), 200);
+}
+
+#[tokio::test]
+async fn clicking_on_the_confirmation_link_confirms_a_subscriber() {
+    let test_app = spawn_app().await;
+    let app_state = &test_app.app_state;
+    let app = app(app_state.clone());
+    let body = "name=fan-tastic.z&email=fantastic.fun.zf@gmail.com";
+
+    Mock::given(path("/email"))
+        .and(method("POST"))
+        .respond_with(ResponseTemplate::new(200))
+        .expect(1)
+        .mount(&test_app.email_server)
+        .await;
+    post_subscriptions(app.clone(), body).await;
+    let email_request = &test_app.email_server.received_requests().await.unwrap()[0];
+    let confirmation_links = test_app.get_confirmation_links(email_request);
+    let path_and_query = path_and_query(confirmation_links.plain_text);
+
+    app.oneshot(
+        Request::builder()
+            .method(http::Method::GET)
+            .uri(path_and_query)
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await
+    .unwrap();
+
+    let saved: Subscription = sqlx::query_as("SELECT email, name, status FROM subscriptions")
+        .fetch_one(test_app.app_state.db_pool.as_ref())
+        .await
+        .expect("Failed to fetch saved subscription.");
+    assert_eq!(saved.email, "fantastic.fun.zf@gmail.com");
+    assert_eq!(saved.name, "fan-tastic.z");
+    assert_eq!(saved.status, "confirmed");
 }
