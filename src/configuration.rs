@@ -89,6 +89,12 @@ pub struct ApplicationSettings {
     pub port: u16,
 }
 
+impl ApplicationSettings {
+    pub fn address(&self) -> String {
+        format!("{}:{}", self.host, self.port)
+    }
+}
+
 #[derive(Deserialize)]
 pub struct DatabaseSettings {
     pub username: String,
