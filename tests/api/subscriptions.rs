@@ -255,3 +255,18 @@ async fn clicking_on_the_confirmation_link_confirms_a_subscriber() {
     assert_eq!(saved.name, "fan-tastic.z");
     assert_eq!(saved.status, "confirmed");
 }
+
+#[tokio::test]
+async fn subscribe_fail_if_there_is_a_fatal_database_error() {
+    let test_app = spawn_app().await;
+    let app_state = &test_app.app_state;
+    let app = app(app_state.clone());
+    let body = "name=fan-tastic.z&email=fantastic.fun.zf@gmail.com";
+
+    sqlx::query("ALTER TABLE subscription_tokens DROP COLUMN subscription_token;")
+        .execute(app_state.db_pool.as_ref())
+        .await
+        .unwrap();
+    let response = post_subscriptions(app, body).await;
+    assert_eq!(response.status().as_u16(), 500);
+}

@@ -12,6 +12,7 @@ path = "src/main.rs"
 name = "zero2prod"
 
 [dependencies]
+anyhow = "1.0.92"
 axum = { version = "0.7.7", features = ["macros", "tracing"] }
 chrono = { version = "0.4.38", features = ["serde"] }
 config = "0.14.1"
@@ -28,6 +29,7 @@ sqlx = { version = "0.8.2", features = [
     "migrate",
     "uuid",
 ] }
+thiserror = "1.0.66"
 tokio = { version = "1.41.0", features = ["rt-multi-thread", "macros"] }
 tower = "0.5.1"
 tower-http = { version = "0.6.1", features = ["compression-full", "trace"] }
