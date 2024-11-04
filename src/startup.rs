@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use axum::{
+    http,
     routing::{get, post},
     Router,
 };
@@ -10,8 +11,10 @@ use tower_http::trace::TraceLayer;
 
 use crate::{
     configuration::{DatabaseSettings, Settings},
+    controller::{confirm, health, subscribe},
     email_client::EmailClient,
-    routes::{confirm, health, subscribe},
+    middleware::{request_id_middleware, Zero2prodRequestId},
+    Result,
 };
 
 #[derive(Clone)]
@@ -54,13 +57,35 @@ pub fn app(state: AppState) -> Router {
         .route("/subscriptions", post(subscribe))
         .route("/subscriptions/confirm", get(confirm))
         .with_state(state)
-        .layer(TraceLayer::new_for_http())
+        .layer(
+            TraceLayer::new_for_http().make_span_with(|request: &http::Request<_>| {
+                let ext = request.extensions();
+                let request_id = ext
+                    .get::<Zero2prodRequestId>()
+                    .map_or_else(|| "req-id-none".to_string(), |r| r.get().to_string());
+                let user_agent = request
+                    .headers()
+                    .get(axum::http::header::USER_AGENT)
+                    .map_or("", |h| h.to_str().unwrap_or(""));
+
+                tracing::error_span!(
+                    "http-request",
+                    "http.method" = tracing::field::display(request.method()),
+                    "http.uri" = tracing::field::display(request.uri()),
+                    "http.version" = tracing::field::debug(request.version()),
+                    "http.user_agent" = tracing::field::display(user_agent),
+                    request_id = tracing::field::display(request_id),
+                )
+            }),
+        )
+        .layer(axum::middleware::from_fn(request_id_middleware))
 }
 
-pub async fn run_until_stopped(state: AppState, configuration: Settings) -> std::io::Result<()> {
+pub async fn run_until_stopped(state: AppState, configuration: Settings) -> Result<()> {
     let app = app(state);
     let listener = tokio::net::TcpListener::bind(configuration.application.address()).await?;
-    axum::serve(listener, app).await
+    axum::serve(listener, app).await?;
+    Ok(())
 }
 
 pub async fn configuration_database(config: &DatabaseSettings) {

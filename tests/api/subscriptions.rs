@@ -268,5 +268,5 @@ async fn subscribe_fail_if_there_is_a_fatal_database_error() {
         .await
         .unwrap();
     let response = post_subscriptions(app, body).await;
-    assert_eq!(response.status().as_u16(), 500);
+    assert_eq!(response.status().as_u16(), 400);
 }

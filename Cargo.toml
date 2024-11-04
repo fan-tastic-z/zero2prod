@@ -12,15 +12,19 @@ path = "src/main.rs"
 name = "zero2prod"
 
 [dependencies]
-anyhow = "1.0.92"
 axum = { version = "0.7.7", features = ["macros", "tracing"] }
+backtrace_printer = "1.3.0"
 chrono = { version = "0.4.38", features = ["serde"] }
+colored = "2.1.0"
 config = "0.14.1"
 rand = { version = "0.8.5", features = ["std_rng"] }
+regex = "1.11.1"
 reqwest = { version = "0.12.9", features = ["json", "rustls-tls"] }
 secrecy = { version = "0.8", features = ["serde"] }
 serde = { version = "1.0.213", features = ["derive"] }
 serde-aux = "4.5.0"
+serde_json = "1.0.132"
+serde_variant = "0.1.3"
 sqlx = { version = "0.8.2", features = [
     "postgres",
     "runtime-tokio",
@@ -32,7 +36,12 @@ sqlx = { version = "0.8.2", features = [
 thiserror = "1.0.66"
 tokio = { version = "1.41.0", features = ["rt-multi-thread", "macros"] }
 tower = "0.5.1"
-tower-http = { version = "0.6.1", features = ["compression-full", "trace"] }
+tower-http = { version = "0.6.1", features = [
+    "compression-full",
+    "trace",
+    "add-extension",
+    "set-header",
+] }
 tracing = "0.1.40"
 tracing-appender = "0.2.3"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter", "json"] }
@@ -48,5 +57,4 @@ mime = "0.3.17"
 once_cell = "1.20.2"
 quickcheck = "1.0.3"
 quickcheck_macros = "1.0.0"
-serde_json = "1.0.132"
 wiremock = "0.6.2"

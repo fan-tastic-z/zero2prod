@@ -5,11 +5,12 @@ use wiremock::MockServer;
 use zero2prod::{
     configuration::get_configuration,
     startup::{configuration_database, AppState},
-    telemetry::init_tracing,
+    telemetry::init,
 };
 
 static TRACING: Lazy<()> = Lazy::new(|| {
-    init_tracing();
+    let configuration = get_configuration().expect("Failed to read configuration.");
+    init(&configuration.logger);
 });
 
 pub struct TestApp {

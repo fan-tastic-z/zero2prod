@@ -3,7 +3,7 @@ use serde::Deserialize;
 use serde_aux::field_attributes::deserialize_number_from_string;
 use sqlx::postgres::{PgConnectOptions, PgSslMode};
 
-use crate::domain::SubscriberEmail;
+use crate::{domain::SubscriberEmail, telemetry, Result};
 
 pub fn get_configuration() -> Result<Settings, config::ConfigError> {
     let base_path = std::env::current_dir().expect("Failed to determine the current directory");
@@ -63,6 +63,7 @@ pub struct Settings {
     pub database: DatabaseSettings,
     pub application: ApplicationSettings,
     pub email_client: EmailClientSettings,
+    pub logger: LoggerSettings,
 }
 
 #[derive(Deserialize)]
@@ -74,7 +75,7 @@ pub struct EmailClientSettings {
 }
 
 impl EmailClientSettings {
-    pub fn sender(&self) -> Result<SubscriberEmail, String> {
+    pub fn sender(&self) -> Result<SubscriberEmail> {
         SubscriberEmail::parse(self.sender_email.clone())
     }
     pub fn timeout(&self) -> std::time::Duration {
@@ -125,4 +126,11 @@ impl DatabaseSettings {
             .password(self.password.expose_secret())
             .ssl_mode(ssl_mode)
     }
+}
+
+#[derive(Deserialize)]
+pub struct LoggerSettings {
+    pub pretty_backtrace: bool,
+    pub level: telemetry::LogLevel,
+    pub format: telemetry::Format,
 }
