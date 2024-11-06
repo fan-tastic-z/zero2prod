@@ -291,17 +291,8 @@ async fn newsletters_are_not_delivered_to_unconfirmed_subscribers() {
             "html": "</p>Newsletter body as HTML</p>"
         }
     });
-    let response = app
-        .oneshot(
-            Request::builder()
-                .method(http::Method::POST)
-                .uri("/newsletters")
-                .body(Body::new(newsletter_request_body.to_string()))
-                .unwrap(),
-        )
-        .await
-        .expect("Failed to execute request.");
-    assert_eq!(response.status().as_u16(), 415);
+    let response = post_newsletters(app, newsletter_request_body).await;
+    assert_eq!(response.status().as_u16(), 200);
 }
 
 async fn create_unconfirmed_subscriber(app: Router, test_app: &TestApp) -> ConfirmationLinks {
@@ -378,7 +369,7 @@ async fn newsletters_are_delivered_to_confirmed_subscribers() {
 }
 
 #[tokio::test]
-async fn newsletters_returns_400_for_invalid_data() {
+async fn newsletters_returns_422_for_invalid_data() {
     let test_app = spawn_app().await;
     let app_state = &test_app.app_state;
     let app = app(app_state.clone());
