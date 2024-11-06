@@ -11,7 +11,7 @@ use tower_http::trace::TraceLayer;
 
 use crate::{
     configuration::{DatabaseSettings, Settings},
-    controller::{confirm, health, subscribe},
+    controller::{confirm, health, publish_newsletter, subscribe},
     email_client::EmailClient,
     middleware::{request_id_middleware, Zero2prodRequestId},
     Result,
@@ -56,6 +56,7 @@ pub fn app(state: AppState) -> Router {
         .route("/health", get(health))
         .route("/subscriptions", post(subscribe))
         .route("/subscriptions/confirm", get(confirm))
+        .route("/newsletters", post(publish_newsletter))
         .with_state(state)
         .layer(
             TraceLayer::new_for_http().make_span_with(|request: &http::Request<_>| {

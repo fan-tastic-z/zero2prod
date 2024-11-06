@@ -5,12 +5,12 @@ use axum::{
 };
 use tower::ServiceExt;
 use wiremock::{
-    matchers::{method, path},
+    matchers::{any, method, path},
     Mock, ResponseTemplate,
 };
 use zero2prod::startup::app;
 
-use crate::helpers::{path_and_query, spawn_app};
+use crate::helpers::{path_and_query, spawn_app, ConfirmationLinks, TestApp};
 
 #[derive(sqlx::FromRow, Debug, PartialEq, Eq)]
 struct Subscription {
@@ -269,4 +269,144 @@ async fn subscribe_fail_if_there_is_a_fatal_database_error() {
         .unwrap();
     let response = post_subscriptions(app, body).await;
     assert_eq!(response.status().as_u16(), 400);
+}
+
+#[tokio::test]
+async fn newsletters_are_not_delivered_to_unconfirmed_subscribers() {
+    let test_app = spawn_app().await;
+    let app_state = &test_app.app_state;
+    let app = app(app_state.clone());
+    create_unconfirmed_subscriber(app.clone(), &test_app).await;
+
+    Mock::given(any())
+        .respond_with(ResponseTemplate::new(200))
+        .expect(0)
+        .mount(&test_app.email_server)
+        .await;
+
+    let newsletter_request_body = serde_json::json!({
+        "title": "Newsletter title",
+        "content": {
+            "text": "Newsletter body as plain text",
+            "html": "</p>Newsletter body as HTML</p>"
+        }
+    });
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method(http::Method::POST)
+                .uri("/newsletters")
+                .body(Body::new(newsletter_request_body.to_string()))
+                .unwrap(),
+        )
+        .await
+        .expect("Failed to execute request.");
+    assert_eq!(response.status().as_u16(), 415);
+}
+
+async fn create_unconfirmed_subscriber(app: Router, test_app: &TestApp) -> ConfirmationLinks {
+    let body = "name=fan-tastic.z&email=fantastic.fun.zf@gmail.com";
+
+    let _mock_guard = Mock::given(path("/email"))
+        .and(method("POST"))
+        .respond_with(ResponseTemplate::new(200))
+        .named("Create unconfirmed subscriber")
+        .expect(1)
+        .mount_as_scoped(&test_app.email_server)
+        .await;
+    post_subscriptions(app, body).await;
+    let email_request = test_app
+        .email_server
+        .received_requests()
+        .await
+        .unwrap()
+        .pop()
+        .unwrap();
+    test_app.get_confirmation_links(&email_request)
+}
+
+async fn create_confirmed_subscriber(app: Router, test_app: &TestApp) {
+    let confirmation_links = create_unconfirmed_subscriber(app.clone(), test_app).await;
+    let path_and_query = path_and_query(confirmation_links.plain_text);
+
+    app.oneshot(
+        Request::builder()
+            .method(http::Method::GET)
+            .uri(path_and_query)
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await
+    .unwrap();
+}
+
+pub async fn post_newsletters(app: Router, body: serde_json::Value) -> http::Response<Body> {
+    app.oneshot(
+        Request::builder()
+            .method(http::Method::POST)
+            .header(http::header::CONTENT_TYPE, mime::APPLICATION_JSON.as_ref())
+            .uri("/newsletters")
+            .body(Body::new(body.to_string()))
+            .unwrap(),
+    )
+    .await
+    .expect("Failed to execute request newsletters.")
+}
+
+#[tokio::test]
+async fn newsletters_are_delivered_to_confirmed_subscribers() {
+    let test_app = spawn_app().await;
+    let app_state = &test_app.app_state;
+    let app = app(app_state.clone());
+    create_confirmed_subscriber(app.clone(), &test_app).await;
+
+    Mock::given(any())
+        .respond_with(ResponseTemplate::new(200))
+        .expect(1)
+        .mount(&test_app.email_server)
+        .await;
+
+    let newsletter_request_body: serde_json::Value = serde_json::json!({
+        "title": "Newsletter title",
+        "content": {
+            "text": "Newsletter body as plain text",
+            "html": "</p>Newsletter body as HTML</p>"
+        }
+    });
+    let response = post_newsletters(app, newsletter_request_body).await;
+    assert_eq!(response.status().as_u16(), 200);
+}
+
+#[tokio::test]
+async fn newsletters_returns_400_for_invalid_data() {
+    let test_app = spawn_app().await;
+    let app_state = &test_app.app_state;
+    let app = app(app_state.clone());
+
+    let test_cases = vec![
+        (
+            serde_json::json!({
+                "content": {
+                    "text": "Newsletter body as plain text",
+                    "html": "</p>Newsletter body as HTML</p>"
+                }
+            }),
+            "missing title",
+        ),
+        (
+            serde_json::json!({
+                "title": "Newsletter!"
+            }),
+            "missing content",
+        ),
+    ];
+    for (invalid_body, error_message) in test_cases {
+        let response = post_newsletters(app.clone(), invalid_body).await;
+        assert_eq!(
+            422,
+            response.status().as_u16(),
+            "The API did not fail with 400 Bad Request when the payload was {}",
+            error_message
+        );
+    }
 }
