@@ -1,3 +1,5 @@
+use std::string;
+
 use crate::{backtrace, Result};
 use axum::{extract::FromRequest, http::StatusCode, response::IntoResponse};
 use colored::Colorize;
@@ -24,12 +26,22 @@ pub enum Error {
     Sqlx(#[from] sqlx::Error),
     #[error(transparent)]
     Reqwest(#[from] reqwest::Error),
+    #[error(transparent)]
+    Base64Decode(#[from] base64::DecodeError),
+    #[error(transparent)]
+    FromUtf8(#[from] string::FromUtf8Error),
+    #[error(transparent)]
+    Argon2(#[from] argon2::Error),
+    #[error(transparent)]
+    Argon2PasswordHashError(#[from] argon2::password_hash::Error),
 
     // API
     #[error("not found")]
     NotFound,
     #[error("{0}")]
     BadRequest(String),
+    #[error("{0}")]
+    Unauthorized(String),
     #[error("internal server error")]
     InternalServerError,
     #[error("")]
@@ -137,6 +149,16 @@ impl IntoResponse for Error {
                 StatusCode::NOT_FOUND,
                 ErrorDetail::new("not_found", "Resource was not found"),
             ),
+            Self::Unauthorized(err) => {
+                tracing::warn!(err);
+                (
+                    StatusCode::UNAUTHORIZED,
+                    ErrorDetail::new(
+                        "unauthorized",
+                        "You do not have permission to access this resource",
+                    ),
+                )
+            }
             Self::InternalServerError => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 ErrorDetail::new("internal_server_error", "Internal Server Error"),

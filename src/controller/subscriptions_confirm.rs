@@ -24,7 +24,6 @@ pub async fn confirm(
         Ok(id) => id,
         Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
     };
-    dbg!(id);
     match id {
         Some(subscriber_id) => {
             if confirm_subscriber(&state.db_pool, subscriber_id)

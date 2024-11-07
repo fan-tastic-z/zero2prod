@@ -1,10 +1,19 @@
+use argon2::{password_hash::SaltString, Argon2, PasswordHasher};
+use axum::{
+    body::Body,
+    http::{self, Request},
+    Router,
+};
+use base64::{prelude::BASE64_STANDARD_NO_PAD, Engine};
 use once_cell::sync::Lazy;
 use reqwest::Url;
+use sqlx::PgPool;
+use tower::ServiceExt;
 use uuid::Uuid;
 use wiremock::MockServer;
 use zero2prod::{
     configuration::get_configuration,
-    startup::{configuration_database, AppState},
+    startup::{app, configuration_database, AppState},
     telemetry::init,
 };
 
@@ -16,9 +25,15 @@ static TRACING: Lazy<()> = Lazy::new(|| {
 pub struct TestApp {
     pub app_state: AppState,
     pub email_server: MockServer,
+    pub test_user: TestUser,
 }
 
 impl TestApp {
+    pub fn app(&self) -> Router {
+        let app_state = self.app_state.clone();
+        app(app_state)
+    }
+
     pub fn get_confirmation_links(&self, email_request: &wiremock::Request) -> ConfirmationLinks {
         let body: serde_json::Value = serde_json::from_slice(&email_request.body).unwrap();
         let get_link = |s: &str| {
@@ -36,6 +51,30 @@ impl TestApp {
         let plain_text = get_link(body["TextBody"].as_str().unwrap());
         ConfirmationLinks { html, plain_text }
     }
+
+    pub async fn post_newsletters(&self, body: serde_json::Value) -> http::Response<Body> {
+        self.app()
+            .oneshot(
+                Request::builder()
+                    .method(http::Method::POST)
+                    .header(http::header::CONTENT_TYPE, mime::APPLICATION_JSON.as_ref())
+                    .header(
+                        http::header::AUTHORIZATION,
+                        format!(
+                            "Bearer {}",
+                            BASE64_STANDARD_NO_PAD.encode(format!(
+                                "{}:{}",
+                                self.test_user.username, self.test_user.password
+                            ))
+                        ),
+                    )
+                    .uri("/newsletters")
+                    .body(Body::new(body.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .expect("Failed to execute request newsletters.")
+    }
 }
 
 pub async fn spawn_app() -> TestApp {
@@ -48,10 +87,14 @@ pub async fn spawn_app() -> TestApp {
     configuration.email_client.base_url = email_server.uri();
     configuration_database(&configuration.database).await;
     let app_state = AppState::build(&configuration).await;
-    TestApp {
-        app_state,
+
+    let test_app = TestApp {
+        app_state: app_state.clone(),
         email_server,
-    }
+        test_user: TestUser::generate(),
+    };
+    test_app.test_user.store(&app_state.db_pool).await;
+    test_app
 }
 
 pub struct ConfirmationLinks {
@@ -63,4 +106,40 @@ pub fn path_and_query(link: reqwest::Url) -> String {
     let url_path = link.path();
     let query = link.query().unwrap();
     format!("{}?{}", url_path, query)
+}
+
+pub struct TestUser {
+    pub user_id: Uuid,
+    pub username: String,
+    pub password: String,
+}
+
+impl TestUser {
+    pub fn generate() -> Self {
+        Self {
+            user_id: Uuid::new_v4(),
+            username: Uuid::new_v4().to_string(),
+            password: Uuid::new_v4().to_string(),
+        }
+    }
+
+    pub async fn store(&self, pool: &PgPool) {
+        let salt = SaltString::generate(&mut rand::thread_rng());
+        let password_hash = Argon2::default()
+            .hash_password(self.password.as_bytes(), &salt)
+            .unwrap()
+            .to_string();
+        sqlx::query(
+            r#"
+            INSERT INTO users(user_id, username, password_hash)
+            VALUES ($1, $2, $3)
+            "#,
+        )
+        .bind(self.user_id)
+        .bind(self.username.clone())
+        .bind(password_hash)
+        .execute(pool)
+        .await
+        .expect("Failed to store test user.");
+    }
 }

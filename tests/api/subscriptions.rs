@@ -291,7 +291,7 @@ async fn newsletters_are_not_delivered_to_unconfirmed_subscribers() {
             "html": "</p>Newsletter body as HTML</p>"
         }
     });
-    let response = post_newsletters(app, newsletter_request_body).await;
+    let response = test_app.post_newsletters(newsletter_request_body).await;
     assert_eq!(response.status().as_u16(), 200);
 }
 
@@ -331,24 +331,10 @@ async fn create_confirmed_subscriber(app: Router, test_app: &TestApp) {
     .unwrap();
 }
 
-pub async fn post_newsletters(app: Router, body: serde_json::Value) -> http::Response<Body> {
-    app.oneshot(
-        Request::builder()
-            .method(http::Method::POST)
-            .header(http::header::CONTENT_TYPE, mime::APPLICATION_JSON.as_ref())
-            .uri("/newsletters")
-            .body(Body::new(body.to_string()))
-            .unwrap(),
-    )
-    .await
-    .expect("Failed to execute request newsletters.")
-}
-
 #[tokio::test]
 async fn newsletters_are_delivered_to_confirmed_subscribers() {
     let test_app = spawn_app().await;
-    let app_state = &test_app.app_state;
-    let app = app(app_state.clone());
+    let app = test_app.app();
     create_confirmed_subscriber(app.clone(), &test_app).await;
 
     Mock::given(any())
@@ -364,15 +350,13 @@ async fn newsletters_are_delivered_to_confirmed_subscribers() {
             "html": "</p>Newsletter body as HTML</p>"
         }
     });
-    let response = post_newsletters(app, newsletter_request_body).await;
+    let response = test_app.post_newsletters(newsletter_request_body).await;
     assert_eq!(response.status().as_u16(), 200);
 }
 
 #[tokio::test]
 async fn newsletters_returns_422_for_invalid_data() {
     let test_app = spawn_app().await;
-    let app_state = &test_app.app_state;
-    let app = app(app_state.clone());
 
     let test_cases = vec![
         (
@@ -392,7 +376,7 @@ async fn newsletters_returns_422_for_invalid_data() {
         ),
     ];
     for (invalid_body, error_message) in test_cases {
-        let response = post_newsletters(app.clone(), invalid_body).await;
+        let response = test_app.post_newsletters(invalid_body).await;
         assert_eq!(
             422,
             response.status().as_u16(),
@@ -400,4 +384,30 @@ async fn newsletters_returns_422_for_invalid_data() {
             error_message
         );
     }
+}
+
+#[tokio::test]
+async fn request_missing_authorization_are_rejected() {
+    let test_app = spawn_app().await;
+    let app = test_app.app();
+
+    let body: serde_json::Value = serde_json::json!({
+        "title": "Newsletter title",
+        "content": {
+            "text": "Newsletter body as plain text",
+            "html": "</p>Newsletter body as HTML</p>"
+        }
+    });
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method(http::Method::POST)
+                .header(http::header::CONTENT_TYPE, mime::APPLICATION_JSON.as_ref())
+                .uri("/newsletters")
+                .body(Body::new(body.to_string()))
+                .unwrap(),
+        )
+        .await
+        .expect("Failed to execute request newsletters.");
+    assert_eq!(401, response.status().as_u16());
 }
