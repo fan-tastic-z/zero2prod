@@ -34,6 +34,8 @@ pub enum Error {
     Argon2(#[from] argon2::Error),
     #[error(transparent)]
     Argon2PasswordHashError(#[from] argon2::password_hash::Error),
+    #[error(transparent)]
+    JoinError(#[from] tokio::task::JoinError),
 
     // API
     #[error("not found")]

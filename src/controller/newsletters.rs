@@ -16,7 +16,10 @@ use serde::Deserialize;
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use crate::{domain::SubscriberEmail, errors::Error, startup::AppState, Result as zero2prodResult};
+use crate::{
+    domain::SubscriberEmail, errors::Error, startup::AppState,
+    telemetry::spawn_blocking_with_tracing, Result as zero2prodResult,
+};
 
 use super::format;
 
@@ -147,7 +150,6 @@ where
                 ))
             }
         };
-
         Ok(Credentials {
             username,
             password: password.into(),
@@ -156,30 +158,20 @@ where
 }
 
 async fn validate_credentials(credentials: Credentials, pool: &PgPool) -> zero2prodResult<Uuid> {
-    let row: Option<User> = sqlx::query_as(
-        r#"
-        SELECT user_id, password_hash
-        FROM users
-        WHERE username = $1
-        "#,
-    )
-    .bind(credentials.username)
-    .fetch_optional(pool)
-    .await?;
+    let row = get_stored_credentials(&credentials.username, pool).await?;
 
     let (expected_password_hash, user_id) = match row {
-        Some(row) => (row.password_hash, row.user_id),
+        Some(user) => (user.password_hash, user.user_id),
         None => {
             return Err(Error::Unauthorized(
                 "Failed to query to retrieve stored credentials.".to_string(),
             ))
         }
     };
-    let expected_password_hash = PasswordHash::new(&expected_password_hash)?;
-    Argon2::default().verify_password(
-        credentials.password.expose_secret().as_bytes(),
-        &expected_password_hash,
-    )?;
+    spawn_blocking_with_tracing(move || {
+        verify_password_hash(expected_password_hash, credentials.password)
+    })
+    .await??;
 
     Ok(user_id)
 }
@@ -188,4 +180,37 @@ async fn validate_credentials(credentials: Credentials, pool: &PgPool) -> zero2p
 struct User {
     user_id: Uuid,
     password_hash: String,
+}
+
+async fn get_stored_credentials(username: &str, pool: &PgPool) -> zero2prodResult<Option<User>> {
+    let row: Option<User> = sqlx::query_as(
+        r#"
+        SELECT user_id, password_hash
+        FROM users
+        WHERE username = $1
+        "#,
+    )
+    .bind(username)
+    .fetch_optional(pool)
+    .await?;
+    Ok(row)
+}
+
+fn verify_password_hash(
+    expected_password_hash: String,
+    password_candidate: Secret<String>,
+) -> zero2prodResult<()> {
+    let expected_password_hash = PasswordHash::new(&expected_password_hash)?;
+    if Argon2::default()
+        .verify_password(
+            password_candidate.expose_secret().as_bytes(),
+            &expected_password_hash,
+        )
+        .is_err()
+    {
+        return Err(Error::Unauthorized(
+            "Failed to verify password hash.".to_string(),
+        ));
+    };
+    Ok(())
 }

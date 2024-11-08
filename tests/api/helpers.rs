@@ -10,12 +10,17 @@ use reqwest::Url;
 use sqlx::PgPool;
 use tower::ServiceExt;
 use uuid::Uuid;
-use wiremock::MockServer;
+use wiremock::{
+    matchers::{method, path},
+    Mock, MockServer, ResponseTemplate,
+};
 use zero2prod::{
     configuration::get_configuration,
     startup::{app, configuration_database, AppState},
     telemetry::init,
 };
+
+use crate::subscriptions::post_subscriptions;
 
 static TRACING: Lazy<()> = Lazy::new(|| {
     let configuration = get_configuration().expect("Failed to read configuration.");
@@ -142,4 +147,40 @@ impl TestUser {
         .await
         .expect("Failed to store test user.");
     }
+}
+
+pub async fn create_confirmed_subscriber(app: Router, test_app: &TestApp) {
+    let confirmation_links = create_unconfirmed_subscriber(app.clone(), test_app).await;
+    let path_and_query = path_and_query(confirmation_links.plain_text);
+
+    app.oneshot(
+        Request::builder()
+            .method(http::Method::GET)
+            .uri(path_and_query)
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await
+    .unwrap();
+}
+
+pub async fn create_unconfirmed_subscriber(app: Router, test_app: &TestApp) -> ConfirmationLinks {
+    let body = "name=fan-tastic.z&email=fantastic.fun.zf@gmail.com";
+
+    let _mock_guard = Mock::given(path("/email"))
+        .and(method("POST"))
+        .respond_with(ResponseTemplate::new(200))
+        .named("Create unconfirmed subscriber")
+        .expect(1)
+        .mount_as_scoped(&test_app.email_server)
+        .await;
+    post_subscriptions(app, body).await;
+    let email_request = test_app
+        .email_server
+        .received_requests()
+        .await
+        .unwrap()
+        .pop()
+        .unwrap();
+    test_app.get_confirmation_links(&email_request)
 }

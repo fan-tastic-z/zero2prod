@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use serde_variant::to_variant_name;
+use tokio::task::JoinHandle;
 use tracing_subscriber::{
     fmt::{self, MakeWriter},
     layer::SubscriberExt,
@@ -51,7 +52,7 @@ impl std::fmt::Display for LogLevel {
 }
 
 // Function to initialize the logger based on the provided configuration
-const MODULE_WHITELIST: &[&str] = &["tower_http", "sqlx::query"];
+const MODULE_WHITELIST: &[&str] = &["tower_http", "sqlx::query", "zero2prod"];
 
 pub fn init(logger_settings: &LoggerSettings) {
     let mut layers: Vec<Box<dyn Layer<Registry> + Sync + Send>> = Vec::new();
@@ -70,7 +71,7 @@ fn init_env_filter(level: &LogLevel) -> EnvFilter {
             EnvFilter::try_new(
                 MODULE_WHITELIST
                     .iter()
-                    .map(|m| format!("{}={}", m, level))
+                    .map(|m| format!("{m}={level}"))
                     .chain(std::iter::once(format!("{}={}", "zero2prod", level)))
                     .collect::<Vec<_>>()
                     .join(","),
@@ -104,4 +105,13 @@ where
             .json()
             .boxed(),
     }
+}
+
+pub fn spawn_blocking_with_tracing<F, R>(f: F) -> JoinHandle<R>
+where
+    F: FnOnce() -> R + Send + 'static,
+    R: Send + 'static,
+{
+    let current_span = tracing::Span::current();
+    tokio::task::spawn_blocking(move || current_span.in_scope(f))
 }
