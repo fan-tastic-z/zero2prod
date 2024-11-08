@@ -5,15 +5,17 @@ use axum::{
     routing::{get, post},
     Router,
 };
+use secrecy::Secret;
 use sqlx::{postgres::PgPoolOptions, Connection};
 use sqlx::{Executor, PgConnection, PgPool, Pool, Postgres};
 use tower_http::trace::TraceLayer;
 
 use crate::{
     configuration::{DatabaseSettings, Settings},
-    controller::{confirm, health, publish_newsletter, subscribe},
+    controller::{confirm, health, home, login, login_form, publish_newsletter, subscribe},
     email_client::EmailClient,
     middleware::{request_id_middleware, Zero2prodRequestId},
+    view_engine::TeraView,
     Result,
 };
 
@@ -22,6 +24,8 @@ pub struct AppState {
     pub db_pool: Arc<Pool<Postgres>>,
     pub email_client: Arc<EmailClient>,
     pub base_url: String,
+    pub tera_engine: Arc<TeraView>,
+    pub hmac_secret: Secret<String>,
 }
 
 impl AppState {
@@ -43,10 +47,14 @@ impl AppState {
             configuration.email_client.authorization_token.clone(),
             timeout,
         ));
+        let hmac_secret = configuration.application.hmac_secret.clone();
+        let tera_engine = Arc::new(TeraView::build().expect("Failed to init tera view engine"));
         Self {
             db_pool,
             email_client,
             base_url: configuration.application.base_url.clone(),
+            tera_engine,
+            hmac_secret,
         }
     }
 }
@@ -54,6 +62,9 @@ impl AppState {
 pub fn app(state: AppState) -> Router {
     Router::new()
         .route("/health", get(health))
+        .route("/home", get(home))
+        .route("/login", get(login_form))
+        .route("/login", post(login))
         .route("/subscriptions", post(subscribe))
         .route("/subscriptions/confirm", get(confirm))
         .route("/newsletters", post(publish_newsletter))

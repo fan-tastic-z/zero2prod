@@ -3,6 +3,8 @@ use std::string;
 use crate::{backtrace, Result};
 use axum::{extract::FromRequest, http::StatusCode, response::IntoResponse};
 use colored::Colorize;
+use hmac::digest;
+use hyper::header::InvalidHeaderValue;
 use serde::Serialize;
 
 #[derive(thiserror::Error, Debug)]
@@ -36,6 +38,14 @@ pub enum Error {
     Argon2PasswordHashError(#[from] argon2::password_hash::Error),
     #[error(transparent)]
     JoinError(#[from] tokio::task::JoinError),
+    #[error(transparent)]
+    Tera(#[from] tera::Error),
+    #[error(transparent)]
+    InvalidHeaderValue(#[from] InvalidHeaderValue),
+    #[error(transparent)]
+    Hex(#[from] hex::FromHexError),
+    #[error(transparent)]
+    Mac(#[from] digest::MacError),
 
     // API
     #[error("not found")]

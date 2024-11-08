@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login</title>
+</head>
+
+<body>
+    {{message}}
+    <form action="/login" method="post">
+        <label>
+            username
+            <input type="text" placeholder="Enter username" name="username">
+        </label>
+        <label>
+            password
+            <input type="password" placeholder="Enter password" name="password">
+        </label>
+        <button type="submit">Login</button>
+    </form>
+</body>
+
+</html>
