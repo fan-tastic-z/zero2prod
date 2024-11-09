@@ -1,6 +1,5 @@
 use axum::{debug_handler, extract::State, response::Response, Form};
-use hmac::{Hmac, Mac};
-use secrecy::ExposeSecret;
+use axum_messages::Messages;
 
 use crate::{
     authentication::{validate_credentials, Credentials},
@@ -12,6 +11,7 @@ use crate::{
 
 #[debug_handler]
 pub async fn login(
+    messages: Messages,
     State(state): State<AppState>,
     Form(params): Form<LoginForm>,
 ) -> Result<Response> {
@@ -23,18 +23,8 @@ pub async fn login(
     match res {
         Ok(_) => format::render().redirect("/home"),
         Err(e) => {
-            let msg = format!("error={}", e);
-            let hmac_tag = {
-                let mut mac = Hmac::<sha2::Sha256>::new_from_slice(
-                    state.hmac_secret.expose_secret().as_bytes(),
-                )
-                .unwrap();
-
-                mac.update(msg.as_bytes());
-                mac.finalize().into_bytes()
-            };
-
-            format::render().redirect_with_error("/login", &format!("{msg}&tag={hmac_tag:x}"))
+            messages.error(e.to_string());
+            format::render().redirect("/login")
         }
     }
 }

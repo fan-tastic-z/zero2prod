@@ -71,12 +71,4 @@ impl RenderBuilder {
             .header(header::LOCATION, to)
             .body(Body::empty())?)
     }
-
-    pub fn redirect_with_error(self, to: &str, message: &str) -> Result<Response> {
-        Ok(self
-            .response
-            .status(StatusCode::SEE_OTHER)
-            .header(header::LOCATION, format!("{}?{}", to, message))
-            .body(Body::empty())?)
-    }
 }

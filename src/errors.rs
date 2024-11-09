@@ -3,7 +3,6 @@ use std::string;
 use crate::{backtrace, Result};
 use axum::{extract::FromRequest, http::StatusCode, response::IntoResponse};
 use colored::Colorize;
-use hmac::digest;
 use hyper::header::InvalidHeaderValue;
 use serde::Serialize;
 
@@ -42,10 +41,6 @@ pub enum Error {
     Tera(#[from] tera::Error),
     #[error(transparent)]
     InvalidHeaderValue(#[from] InvalidHeaderValue),
-    #[error(transparent)]
-    Hex(#[from] hex::FromHexError),
-    #[error(transparent)]
-    Mac(#[from] digest::MacError),
 
     // API
     #[error("not found")]

@@ -5,10 +5,12 @@ use axum::{
     routing::{get, post},
     Router,
 };
+use axum_messages::MessagesManagerLayer;
 use secrecy::Secret;
 use sqlx::{postgres::PgPoolOptions, Connection};
 use sqlx::{Executor, PgConnection, PgPool, Pool, Postgres};
 use tower_http::trace::TraceLayer;
+use tower_sessions::{MemoryStore, SessionManagerLayer};
 
 use crate::{
     configuration::{DatabaseSettings, Settings},
@@ -60,6 +62,8 @@ impl AppState {
 }
 
 pub fn app(state: AppState) -> Router {
+    let session_store = MemoryStore::default();
+    let session_layer = SessionManagerLayer::new(session_store).with_secure(false);
     Router::new()
         .route("/health", get(health))
         .route("/home", get(home))
@@ -91,6 +95,8 @@ pub fn app(state: AppState) -> Router {
             }),
         )
         .layer(axum::middleware::from_fn(request_id_middleware))
+        .layer(MessagesManagerLayer)
+        .layer(session_layer)
 }
 
 pub async fn run_until_stopped(state: AppState, configuration: Settings) -> Result<()> {
