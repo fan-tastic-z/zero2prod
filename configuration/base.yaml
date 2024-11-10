@@ -1,12 +1,12 @@
 application:
   port: 9000
-  hmac_secret: "super-long-and-secret-random-key-needed-to-verify-message-integrity"
 database:
   host: "localhost"
   port: 5432
   username: "postgres"
   password: "password"
   database_name: "newsletter"
+redis_uri: "redis://localhost:6379"
 email_client:
   base_url: "localhost"
   sender_email: "test@gmail.com"

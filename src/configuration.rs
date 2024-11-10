@@ -64,6 +64,7 @@ pub struct Settings {
     pub application: ApplicationSettings,
     pub email_client: EmailClientSettings,
     pub logger: LoggerSettings,
+    pub redis_uri: Secret<String>,
 }
 
 #[derive(Deserialize)]
@@ -89,7 +90,6 @@ pub struct ApplicationSettings {
     #[serde(deserialize_with = "deserialize_number_from_string")]
     pub port: u16,
     pub base_url: String,
-    pub hmac_secret: Secret<String>,
 }
 
 impl ApplicationSettings {

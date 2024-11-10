@@ -15,8 +15,8 @@ use wiremock::{
     Mock, MockServer, ResponseTemplate,
 };
 use zero2prod::{
-    configuration::get_configuration,
-    startup::{app, configuration_database, AppState},
+    configuration::{get_configuration, Settings},
+    startup::{app, configuration_database, register_layer, AppState},
     telemetry::init,
 };
 
@@ -31,16 +31,23 @@ pub struct TestApp {
     pub app_state: AppState,
     pub email_server: MockServer,
     pub test_user: TestUser,
+    pub configuration: Settings,
 }
 
 impl TestApp {
-    pub fn app(&self) -> Router {
+    pub async fn app(&self) -> Router {
         let app_state = self.app_state.clone();
-        app(app_state)
+        let router = app(app_state);
+        self.register_layer(router).await
+    }
+
+    pub async fn register_layer(&self, app: Router) -> Router {
+        register_layer(app, &self.configuration).await
     }
 
     pub async fn post_login(&self, body: &str) -> http::Response<Body> {
         self.app()
+            .await
             .oneshot(
                 Request::builder()
                     .method(http::Method::POST)
@@ -54,6 +61,20 @@ impl TestApp {
             )
             .await
             .expect("Failed to execute request login.")
+    }
+
+    pub async fn get_admin_dashboard(&self) -> http::Response<Body> {
+        self.app()
+            .await
+            .oneshot(
+                Request::builder()
+                    .method(http::Method::GET)
+                    .uri("/admin/dashboard")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .expect("Failed to execute request admin dashboard.")
     }
 
     pub fn get_confirmation_links(&self, email_request: &wiremock::Request) -> ConfirmationLinks {
@@ -76,6 +97,7 @@ impl TestApp {
 
     pub async fn post_newsletters(&self, body: serde_json::Value) -> http::Response<Body> {
         self.app()
+            .await
             .oneshot(
                 Request::builder()
                     .method(http::Method::POST)
@@ -114,6 +136,7 @@ pub async fn spawn_app() -> TestApp {
         app_state: app_state.clone(),
         email_server,
         test_user: TestUser::generate(),
+        configuration,
     };
     test_app.test_user.store(&app_state.db_pool).await;
     test_app

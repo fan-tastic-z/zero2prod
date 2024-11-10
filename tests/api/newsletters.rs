@@ -12,7 +12,7 @@ use crate::helpers::{create_confirmed_subscriber, spawn_app};
 #[tokio::test]
 async fn newsletters_are_delivered_to_confirmed_subscribers() {
     let test_app = spawn_app().await;
-    let app = test_app.app();
+    let app = test_app.app().await;
     create_confirmed_subscriber(app.clone(), &test_app).await;
 
     Mock::given(any())
@@ -78,6 +78,7 @@ async fn non_existing_user_is_rejected() {
     });
     let response = test_app
         .app()
+        .await
         .oneshot(
             Request::builder()
                 .method(http::Method::POST)
@@ -112,6 +113,7 @@ async fn invalid_password_is_rejected() {
     });
     let response = test_app
         .app()
+        .await
         .oneshot(
             Request::builder()
                 .method(http::Method::POST)

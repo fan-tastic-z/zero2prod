@@ -308,6 +308,7 @@ async fn request_missing_authorization_are_rejected() {
         }
     });
     let response = app
+        .await
         .oneshot(
             Request::builder()
                 .method(http::Method::POST)
