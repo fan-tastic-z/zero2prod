@@ -1,10 +1,14 @@
 use argon2::{password_hash::SaltString, Argon2, PasswordHasher};
 use axum::{
     body::Body,
-    http::{self, Request},
+    http::{self, HeaderValue, Request},
     Router,
 };
 use base64::{prelude::BASE64_STANDARD_NO_PAD, Engine};
+use hyper::{
+    header::{self, LOCATION},
+    Response,
+};
 use once_cell::sync::Lazy;
 use reqwest::Url;
 use sqlx::PgPool;
@@ -45,7 +49,8 @@ impl TestApp {
         register_layer(app, &self.configuration).await
     }
 
-    pub async fn post_login(&self, body: &str) -> http::Response<Body> {
+    pub async fn post_login(&self, body: serde_json::Value) -> http::Response<Body> {
+        let body = serde_urlencoded::to_string(body).unwrap();
         self.app()
             .await
             .oneshot(
@@ -63,12 +68,56 @@ impl TestApp {
             .expect("Failed to execute request login.")
     }
 
-    pub async fn get_admin_dashboard(&self) -> http::Response<Body> {
+    pub async fn post_update_password_with_cookie(
+        &self,
+        body: serde_json::Value,
+        cookie: &str,
+    ) -> http::Response<Body> {
+        let body = serde_urlencoded::to_string(body).unwrap();
+        self.app()
+            .await
+            .oneshot(
+                Request::builder()
+                    .method(http::Method::POST)
+                    .header(
+                        http::header::CONTENT_TYPE,
+                        mime::APPLICATION_WWW_FORM_URLENCODED.as_ref(),
+                    )
+                    .uri("/admin/password")
+                    .header(header::COOKIE, cookie)
+                    .body(Body::new(body))
+                    .unwrap(),
+            )
+            .await
+            .expect("Failed to execute request change password.")
+    }
+
+    pub async fn post_logout_with_cookie(&self, cookie: &str) -> http::Response<Body> {
+        self.app()
+            .await
+            .oneshot(
+                Request::builder()
+                    .method(http::Method::POST)
+                    .header(
+                        http::header::CONTENT_TYPE,
+                        mime::APPLICATION_WWW_FORM_URLENCODED.as_ref(),
+                    )
+                    .header(header::COOKIE, cookie)
+                    .uri("/admin/logout")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .expect("failed to execute request logout.")
+    }
+
+    pub async fn get_admin_dashboard_with_cookie(&self, cookie: &str) -> http::Response<Body> {
         self.app()
             .await
             .oneshot(
                 Request::builder()
                     .method(http::Method::GET)
+                    .header(header::COOKIE, cookie)
                     .uri("/admin/dashboard")
                     .body(Body::empty())
                     .unwrap(),
@@ -120,18 +169,28 @@ impl TestApp {
             .expect("Failed to execute request newsletters.")
     }
 
-    pub async fn get_change_password(&self) -> http::Response<Body> {
+    pub async fn get_change_password_with_cookie(&self, cookie: &str) -> http::Response<Body> {
         self.app()
             .await
             .oneshot(
                 Request::builder()
                     .method(http::Method::GET)
+                    .header(header::COOKIE, cookie)
                     .uri("/admin/password")
                     .body(Body::empty())
                     .unwrap(),
             )
             .await
             .expect("Failed to execute request change password form.")
+    }
+
+    pub async fn login_and_get_cookie(&self) -> String {
+        let body = serde_json::json!({
+            "username":self.test_user.username,
+            "password": self.test_user.password,
+        });
+        let response = self.post_login(body).await;
+        get_cookie(response)
     }
 }
 
@@ -238,4 +297,26 @@ pub async fn create_unconfirmed_subscriber(app: Router, test_app: &TestApp) -> C
         .pop()
         .unwrap();
     test_app.get_confirmation_links(&email_request)
+}
+
+pub fn assert_response_redirect_to(response: Response<Body>, to: &str) {
+    let location = response.headers().get(LOCATION);
+    assert_eq!(location, Some(&HeaderValue::from_str(to).unwrap()));
+}
+
+pub fn get_cookie(response: Response<Body>) -> String {
+    response
+        .headers()
+        .get_all(header::SET_COOKIE)
+        .iter()
+        .find_map(|value| {
+            value.to_str().ok().and_then(|cookie| {
+                if cookie.starts_with("session=") {
+                    Some(cookie.to_string())
+                } else {
+                    None
+                }
+            })
+        })
+        .unwrap_or_else(|| "".to_string())
 }
