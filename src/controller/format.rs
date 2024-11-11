@@ -33,7 +33,7 @@ pub fn render() -> RenderBuilder {
     RenderBuilder::new()
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct RenderBuilder {
     response: Builder,
 }
@@ -42,7 +42,7 @@ impl RenderBuilder {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            response: Builder::new().status(StatusCode::OK),
+            response: Builder::default(),
         }
     }
 

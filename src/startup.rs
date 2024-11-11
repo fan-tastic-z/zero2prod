@@ -22,7 +22,7 @@ use crate::{
         login_form, logout, publish_newsletter, subscribe,
     },
     email_client::EmailClient,
-    middleware::{request_id_middleware, Zero2prodRequestId},
+    middleware::{auth_middleware, request_id_middleware, Zero2prodRequestId},
     view_engine::TeraView,
     Result,
 };
@@ -64,6 +64,15 @@ impl AppState {
     }
 }
 
+fn admin_routers() -> Router<AppState> {
+    Router::new()
+        .route("/dashboard", get(admin_dashboard))
+        .route("/password", get(change_password_form))
+        .route("/password", post(change_password))
+        .route("/logout", post(logout))
+        .layer(axum::middleware::from_fn(auth_middleware))
+}
+
 pub fn app(state: AppState) -> Router {
     Router::new()
         .route("/health", get(health))
@@ -73,10 +82,7 @@ pub fn app(state: AppState) -> Router {
         .route("/subscriptions", post(subscribe))
         .route("/subscriptions/confirm", get(confirm))
         .route("/newsletters", post(publish_newsletter))
-        .route("/admin/dashboard", get(admin_dashboard))
-        .route("/admin/password", get(change_password_form))
-        .route("/admin/password", post(change_password))
-        .route("/admin/logout", post(logout))
+        .nest("/admin", admin_routers())
         .with_state(state)
 }
 
