@@ -119,6 +119,20 @@ impl TestApp {
             .await
             .expect("Failed to execute request newsletters.")
     }
+
+    pub async fn get_change_password(&self) -> http::Response<Body> {
+        self.app()
+            .await
+            .oneshot(
+                Request::builder()
+                    .method(http::Method::GET)
+                    .uri("/admin/password")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .expect("Failed to execute request change password form.")
+    }
 }
 
 pub async fn spawn_app() -> TestApp {
@@ -164,7 +178,7 @@ impl TestUser {
         Self {
             user_id: Uuid::new_v4(),
             username: Uuid::new_v4().to_string(),
-            password: Uuid::new_v4().to_string(),
+            password: "everythinghastostartsomewhere".into(),
         }
     }
 
@@ -174,6 +188,7 @@ impl TestUser {
             .hash_password(self.password.as_bytes(), &salt)
             .unwrap()
             .to_string();
+        dbg!(&password_hash);
         sqlx::query(
             r#"
             INSERT INTO users(user_id, username, password_hash)

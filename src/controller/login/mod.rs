@@ -10,14 +10,13 @@ use super::format;
 
 #[debug_handler]
 pub async fn login_form(messages: Messages, State(state): State<AppState>) -> Result<Response> {
-    let message = messages
+    let messages = messages
         .into_iter()
         .map(|msg| format!("{}", msg))
-        .collect::<Vec<_>>()
-        .join(",");
+        .collect::<Vec<_>>();
     format::render().view(
         &state.tera_engine,
         "login.html",
-        json!({"message": message}),
+        json!({"messages": messages}),
     )
 }

@@ -1,4 +1,4 @@
-use argon2::{Argon2, PasswordHash, PasswordVerifier};
+use argon2::{password_hash::SaltString, Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
 use axum::{async_trait, extract::FromRequestParts, http::request::Parts, RequestPartsExt};
 use axum_extra::{
     headers::{authorization::Bearer, Authorization},
@@ -134,4 +134,33 @@ fn verify_password_hash(
         &expected_password_hash,
     )?;
     Ok(())
+}
+
+pub async fn change_password_store(
+    user_id: Uuid,
+    password: Secret<String>,
+    pool: &PgPool,
+) -> Result<()> {
+    let password_hash =
+        spawn_blocking_with_tracing(move || compute_password_hash(password)).await??;
+    sqlx::query(
+        r#"
+        UPDATE users
+        SET password_hash = $1
+        WHERE user_id = $2
+        "#,
+    )
+    .bind(password_hash.expose_secret())
+    .bind(user_id)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+fn compute_password_hash(password: Secret<String>) -> Result<Secret<String>> {
+    let slat = SaltString::generate(&mut rand::thread_rng());
+    let password = Argon2::default()
+        .hash_password(password.expose_secret().as_bytes(), &slat)?
+        .to_string();
+    Ok(Secret::new(password))
 }

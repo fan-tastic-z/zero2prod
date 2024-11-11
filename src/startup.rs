@@ -18,7 +18,8 @@ use tower_sessions::{MemoryStore, SessionManagerLayer};
 use crate::{
     configuration::{DatabaseSettings, Settings},
     controller::{
-        admin_dashboard, confirm, health, home, login, login_form, publish_newsletter, subscribe,
+        admin_dashboard, change_password, change_password_form, confirm, health, home, login,
+        login_form, logout, publish_newsletter, subscribe,
     },
     email_client::EmailClient,
     middleware::{request_id_middleware, Zero2prodRequestId},
@@ -73,6 +74,9 @@ pub fn app(state: AppState) -> Router {
         .route("/subscriptions/confirm", get(confirm))
         .route("/newsletters", post(publish_newsletter))
         .route("/admin/dashboard", get(admin_dashboard))
+        .route("/admin/password", get(change_password_form))
+        .route("/admin/password", post(change_password))
+        .route("/admin/logout", post(logout))
         .with_state(state)
 }
 

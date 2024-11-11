@@ -28,7 +28,7 @@ pub async fn admin_dashboard(
 #[derive(FromRow)]
 struct Username(String);
 
-async fn get_username(user_id: Uuid, pool: &PgPool) -> Result<String> {
+pub async fn get_username(user_id: Uuid, pool: &PgPool) -> Result<String> {
     let row: Username = sqlx::query_as(
         r#"
         SELECT username
