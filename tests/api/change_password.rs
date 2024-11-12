@@ -10,6 +10,24 @@ pub async fn you_must_be_logged_in_to_see_the_change_password_form() {
 }
 
 #[tokio::test]
+async fn you_must_be_logged_in_to_change_your_password() {
+    let test_app = spawn_app().await;
+    let new_password = Uuid::new_v4().to_string();
+    let response = test_app
+        .post_update_password_with_cookie(
+            serde_json::json!({
+                "current_password": Uuid::new_v4().to_string(),
+                "new_password": &new_password,
+                "new_password_check": &new_password,
+            }),
+            "",
+        )
+        .await;
+
+    assert_response_redirect_to(response, "/login");
+}
+
+#[tokio::test]
 pub async fn new_password_fields_must_match() {
     let test_app = spawn_app().await;
     let new_password = Uuid::new_v4().to_string();

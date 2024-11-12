@@ -4043,6 +4043,7 @@ dependencies = [
  "colored",
  "config",
  "fake",
+ "http-body-util",
  "hyper",
  "linkify",
  "mime",

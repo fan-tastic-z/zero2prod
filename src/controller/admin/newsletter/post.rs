@@ -1,36 +1,22 @@
-use axum::{debug_handler, extract::State, response::Response, Json};
-use serde::Deserialize;
+use axum::{debug_handler, extract::State, response::Response, Form};
+use axum_messages::Messages;
 use sqlx::PgPool;
 
-use crate::{
-    authentication::{validate_credentials, Credentials},
-    domain::SubscriberEmail,
-    startup::AppState,
-    Result,
-};
+use crate::{controller::format, domain::SubscriberEmail, startup::AppState, Result};
 
-use super::format;
-
-#[derive(Deserialize)]
-pub struct BodyData {
+#[derive(serde::Deserialize)]
+pub struct FormData {
     title: String,
-    content: Content,
-}
-
-#[derive(Deserialize)]
-pub struct Content {
-    html: String,
-    text: String,
+    text_content: String,
+    html_content: String,
 }
 
 #[debug_handler]
 pub async fn publish_newsletter(
-    credentials: Credentials,
+    messages: Messages,
     State(state): State<AppState>,
-    Json(params): Json<BodyData>,
+    Form(params): Form<FormData>,
 ) -> Result<Response> {
-    let _user_id = validate_credentials(credentials, &state.db_pool).await?;
-
     let subscribers = get_confirmed_subscribers(&state.db_pool).await?;
     for subscriber in subscribers {
         match subscriber {
@@ -40,8 +26,8 @@ pub async fn publish_newsletter(
                     .send_email(
                         subscriber.email,
                         &params.title,
-                        &params.content.html,
-                        &params.content.text,
+                        &params.html_content,
+                        &params.text_content,
                     )
                     .await?;
             }
@@ -53,7 +39,8 @@ pub async fn publish_newsletter(
             }
         }
     }
-    format::empty()
+    messages.info("The newsletter issue has been published!");
+    format::render().redirect("/admin/newsletters")
 }
 
 #[derive(sqlx::FromRow, Debug)]

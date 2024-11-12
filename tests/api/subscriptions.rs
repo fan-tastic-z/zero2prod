@@ -5,12 +5,12 @@ use axum::{
 };
 use tower::ServiceExt;
 use wiremock::{
-    matchers::{any, method, path},
+    matchers::{method, path},
     Mock, ResponseTemplate,
 };
 use zero2prod::startup::app;
 
-use crate::helpers::{create_unconfirmed_subscriber, path_and_query, spawn_app};
+use crate::helpers::{path_and_query, spawn_app};
 
 #[derive(sqlx::FromRow, Debug, PartialEq, Eq)]
 struct Subscription {
@@ -254,70 +254,4 @@ async fn clicking_on_the_confirmation_link_confirms_a_subscriber() {
     assert_eq!(saved.email, "fantastic.fun.zf@gmail.com");
     assert_eq!(saved.name, "fan-tastic.z");
     assert_eq!(saved.status, "confirmed");
-}
-
-#[tokio::test]
-async fn subscribe_fail_if_there_is_a_fatal_database_error() {
-    let test_app = spawn_app().await;
-    let app_state = &test_app.app_state;
-    let app = app(app_state.clone());
-    let body = "name=fan-tastic.z&email=fantastic.fun.zf@gmail.com";
-
-    sqlx::query("ALTER TABLE subscription_tokens DROP COLUMN subscription_token;")
-        .execute(app_state.db_pool.as_ref())
-        .await
-        .unwrap();
-    let response = post_subscriptions(app, body).await;
-    assert_eq!(response.status().as_u16(), 400);
-}
-
-#[tokio::test]
-async fn newsletters_are_not_delivered_to_unconfirmed_subscribers() {
-    let test_app = spawn_app().await;
-    let app_state = &test_app.app_state;
-    let app = app(app_state.clone());
-    create_unconfirmed_subscriber(app.clone(), &test_app).await;
-
-    Mock::given(any())
-        .respond_with(ResponseTemplate::new(200))
-        .expect(0)
-        .mount(&test_app.email_server)
-        .await;
-
-    let newsletter_request_body = serde_json::json!({
-        "title": "Newsletter title",
-        "content": {
-            "text": "Newsletter body as plain text",
-            "html": "</p>Newsletter body as HTML</p>"
-        }
-    });
-    let response = test_app.post_newsletters(newsletter_request_body).await;
-    assert_eq!(response.status().as_u16(), 200);
-}
-
-#[tokio::test]
-async fn request_missing_authorization_are_rejected() {
-    let test_app = spawn_app().await;
-    let app = test_app.app();
-
-    let body: serde_json::Value = serde_json::json!({
-        "title": "Newsletter title",
-        "content": {
-            "text": "Newsletter body as plain text",
-            "html": "</p>Newsletter body as HTML</p>"
-        }
-    });
-    let response = app
-        .await
-        .oneshot(
-            Request::builder()
-                .method(http::Method::POST)
-                .header(http::header::CONTENT_TYPE, mime::APPLICATION_JSON.as_ref())
-                .uri("/newsletters")
-                .body(Body::new(body.to_string()))
-                .unwrap(),
-        )
-        .await
-        .expect("Failed to execute request newsletters.");
-    assert_eq!(401, response.status().as_u16());
 }

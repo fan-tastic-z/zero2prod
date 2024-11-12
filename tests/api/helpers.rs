@@ -4,7 +4,7 @@ use axum::{
     http::{self, HeaderValue, Request},
     Router,
 };
-use base64::{prelude::BASE64_STANDARD_NO_PAD, Engine};
+use http_body_util::BodyExt;
 use hyper::{
     header::{self, LOCATION},
     Response,
@@ -144,29 +144,67 @@ impl TestApp {
         ConfirmationLinks { html, plain_text }
     }
 
-    pub async fn post_newsletters(&self, body: serde_json::Value) -> http::Response<Body> {
+    pub async fn post_newsletter_with_cookie(
+        &self,
+        body: serde_json::Value,
+        cookie: &str,
+    ) -> http::Response<Body> {
+        let body = serde_urlencoded::to_string(body).unwrap();
         self.app()
             .await
             .oneshot(
                 Request::builder()
                     .method(http::Method::POST)
-                    .header(http::header::CONTENT_TYPE, mime::APPLICATION_JSON.as_ref())
                     .header(
-                        http::header::AUTHORIZATION,
-                        format!(
-                            "Bearer {}",
-                            BASE64_STANDARD_NO_PAD.encode(format!(
-                                "{}:{}",
-                                self.test_user.username, self.test_user.password
-                            ))
-                        ),
+                        http::header::CONTENT_TYPE,
+                        mime::APPLICATION_WWW_FORM_URLENCODED.as_ref(),
                     )
-                    .uri("/newsletters")
+                    .header(header::COOKIE, cookie)
+                    .uri("/admin/newsletters")
                     .body(Body::new(body.to_string()))
                     .unwrap(),
             )
             .await
             .expect("Failed to execute request newsletters.")
+    }
+
+    pub async fn get_publish_newsletter(&self) -> http::Response<Body> {
+        self.app()
+            .await
+            .oneshot(
+                Request::builder()
+                    .method(http::Method::GET)
+                    .header(http::header::CONTENT_TYPE, mime::APPLICATION_JSON.as_ref())
+                    .uri("/admin/newsletters")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .expect("Failed to execute request newsletters.")
+    }
+
+    pub async fn _get_publish_newsletter_html(&self, cookie: &str) -> String {
+        let response = self
+            .app()
+            .await
+            .oneshot(
+                Request::builder()
+                    .method(http::Method::GET)
+                    .header(http::header::CONTENT_TYPE, mime::APPLICATION_JSON.as_ref())
+                    .header(header::COOKIE, cookie)
+                    .uri("/admin/newsletters")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .expect("Failed to execute request newsletters.");
+        // get response body string
+        let body = response
+            .into_body()
+            .collect()
+            .await
+            .expect("Failed to collect body");
+        String::from_utf8(body.to_bytes().to_vec()).expect("Failed to parse body to string")
     }
 
     pub async fn get_change_password_with_cookie(&self, cookie: &str) -> http::Response<Body> {
