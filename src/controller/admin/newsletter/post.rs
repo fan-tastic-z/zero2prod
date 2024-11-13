@@ -1,22 +1,44 @@
-use axum::{debug_handler, extract::State, response::Response, Form};
+use axum::{debug_handler, extract::State, response::Response, Extension, Form};
 use axum_messages::Messages;
 use sqlx::PgPool;
+use uuid::Uuid;
 
-use crate::{controller::format, domain::SubscriberEmail, startup::AppState, Result};
+use crate::{
+    controller::format,
+    domain::SubscriberEmail,
+    errors::Error,
+    idempotency::{save_response, try_processing, IdempotencyKey, NextAction},
+    startup::AppState,
+    Result,
+};
 
 #[derive(serde::Deserialize)]
 pub struct FormData {
     title: String,
     text_content: String,
     html_content: String,
+    idempotency_key: String,
 }
 
 #[debug_handler]
 pub async fn publish_newsletter(
+    Extension(user_id): Extension<Uuid>,
     messages: Messages,
     State(state): State<AppState>,
     Form(params): Form<FormData>,
 ) -> Result<Response> {
+    let idempotency_key: IdempotencyKey = params
+        .idempotency_key
+        .try_into()
+        .map_err(|_| Error::InvalidIdempotencyKey)?;
+
+    let transaction = match try_processing(&state.db_pool, &idempotency_key, user_id).await? {
+        NextAction::StartProcessing(t) => t,
+        NextAction::ReturnSavedResponse(response) => {
+            messages.info("The newsletter issue has been published!");
+            return Ok(response);
+        }
+    };
     let subscribers = get_confirmed_subscribers(&state.db_pool).await?;
     for subscriber in subscribers {
         match subscriber {
@@ -40,7 +62,9 @@ pub async fn publish_newsletter(
         }
     }
     messages.info("The newsletter issue has been published!");
-    format::render().redirect("/admin/newsletters")
+    let response = format::render().redirect("/admin/newsletters")?;
+    let response = save_response(transaction, &idempotency_key, user_id, response).await?;
+    Ok(response)
 }
 
 #[derive(sqlx::FromRow, Debug)]

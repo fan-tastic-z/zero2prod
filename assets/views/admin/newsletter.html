@@ -22,6 +22,7 @@
             <textarea placeholder="Enter the content in HTML format" name="html_content" rows="20" cols="50"></textarea>
         </label>
         <br>
+        <input type="hidden" name="idempotency_key" value="{{idempotency_key}}">
         <button type="submit">Publish</button>
     </form>
     <p><a href="/admin/dashboard">&lt;- Back</a></p>

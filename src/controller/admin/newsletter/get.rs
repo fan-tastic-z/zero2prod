@@ -1,6 +1,7 @@
 use axum::{debug_handler, extract::State, response::Response};
 use axum_messages::Messages;
 use serde_json::json;
+use uuid::Uuid;
 
 use crate::{controller::format, startup::AppState, Result};
 
@@ -13,10 +14,10 @@ pub async fn publish_newsletter_form(
         .into_iter()
         .map(|msg| format!("{}", msg))
         .collect::<Vec<_>>();
-
+    let idempotency_key = Uuid::new_v4();
     format::render().view(
         &state.tera_engine,
         "admin/newsletter.html",
-        json!({"messages": messages}),
+        json!({"messages": messages, "idempotency_key":idempotency_key}),
     )
 }

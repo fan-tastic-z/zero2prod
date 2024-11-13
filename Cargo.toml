@@ -12,6 +12,7 @@ path = "src/main.rs"
 name = "zero2prod"
 
 [dependencies]
+anyhow = "1.0.93"
 argon2 = { version = "0.5.3", features = ["std"] }
 axum = { version = "0.7.7", features = ["macros", "tracing"] }
 axum-extra = { version = "0.9.4", features = ["cookie", "typed-header"] }

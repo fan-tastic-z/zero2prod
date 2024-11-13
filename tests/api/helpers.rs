@@ -146,7 +146,7 @@ impl TestApp {
 
     pub async fn post_newsletter_with_cookie(
         &self,
-        body: serde_json::Value,
+        body: &serde_json::Value,
         cookie: &str,
     ) -> http::Response<Body> {
         let body = serde_urlencoded::to_string(body).unwrap();

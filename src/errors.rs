@@ -41,6 +41,10 @@ pub enum Error {
     Tera(#[from] tera::Error),
     #[error(transparent)]
     InvalidHeaderValue(#[from] InvalidHeaderValue),
+    #[error(transparent)]
+    InvalidStatusCode(#[from] axum::http::status::InvalidStatusCode),
+    #[error(transparent)]
+    AxumError(#[from] axum::Error),
 
     // API
     #[error("not found")]
@@ -53,6 +57,8 @@ pub enum Error {
     InternalServerError,
     #[error("")]
     CustomError(StatusCode, ErrorDetail),
+    #[error("")]
+    InvalidIdempotencyKey,
 
     #[error(transparent)]
     Any(#[from] Box<dyn std::error::Error + Send + Sync>),

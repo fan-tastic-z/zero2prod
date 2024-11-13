@@ -7,6 +7,7 @@ pub mod controller;
 pub mod domain;
 pub mod email_client;
 pub mod errors;
+pub mod idempotency;
 pub mod middleware;
 pub mod startup;
 pub mod telemetry;
