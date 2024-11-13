@@ -26,6 +26,7 @@ impl EmailClient {
             authorization_token,
         }
     }
+
     pub async fn send_email(
         &self,
         recipient: SubscriberEmail,

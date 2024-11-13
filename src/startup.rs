@@ -43,17 +43,7 @@ impl AppState {
                 .connect_lazy_with(configuration.database.with_db()),
         );
 
-        let sender_email = configuration
-            .email_client
-            .sender()
-            .expect("Invalid sender email address");
-        let timeout = configuration.email_client.timeout();
-        let email_client = Arc::new(EmailClient::new(
-            configuration.email_client.base_url.clone(),
-            sender_email,
-            configuration.email_client.authorization_token.clone(),
-            timeout,
-        ));
+        let email_client = Arc::new(configuration.email_client.clone().client());
         let tera_engine = Arc::new(TeraView::build().expect("Failed to init tera view engine"));
         Self {
             db_pool,

@@ -8,6 +8,7 @@ pub mod domain;
 pub mod email_client;
 pub mod errors;
 pub mod idempotency;
+pub mod issue_delivery_worker;
 pub mod middleware;
 pub mod startup;
 pub mod telemetry;

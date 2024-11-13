@@ -4,6 +4,10 @@ use axum::{
     http::{self, HeaderValue, Request},
     Router,
 };
+use fake::{
+    faker::{internet::en::SafeEmail, name::en::Name},
+    Fake,
+};
 use http_body_util::BodyExt;
 use hyper::{
     header::{self, LOCATION},
@@ -20,6 +24,8 @@ use wiremock::{
 };
 use zero2prod::{
     configuration::{get_configuration, Settings},
+    email_client::EmailClient,
+    issue_delivery_worker::{try_execute_task, ExecutionOutcome},
     startup::{app, configuration_database, register_layer, AppState},
     telemetry::init,
 };
@@ -36,6 +42,7 @@ pub struct TestApp {
     pub email_server: MockServer,
     pub test_user: TestUser,
     pub configuration: Settings,
+    pub email_client: EmailClient,
 }
 
 impl TestApp {
@@ -230,6 +237,18 @@ impl TestApp {
         let response = self.post_login(body).await;
         get_cookie(response)
     }
+
+    pub async fn dispatch_all_pending_emails(&self) {
+        loop {
+            if let ExecutionOutcome::EmptyQueue =
+                try_execute_task(&self.app_state.db_pool, &self.email_client)
+                    .await
+                    .unwrap()
+            {
+                break;
+            }
+        }
+    }
 }
 
 pub async fn spawn_app() -> TestApp {
@@ -247,7 +266,9 @@ pub async fn spawn_app() -> TestApp {
         app_state: app_state.clone(),
         email_server,
         test_user: TestUser::generate(),
-        configuration,
+        // TODO: remove this
+        configuration: configuration.clone(),
+        email_client: configuration.email_client.client(),
     };
     test_app.test_user.store(&app_state.db_pool).await;
     test_app
@@ -317,8 +338,13 @@ pub async fn create_confirmed_subscriber(app: Router, test_app: &TestApp) {
 }
 
 pub async fn create_unconfirmed_subscriber(app: Router, test_app: &TestApp) -> ConfirmationLinks {
-    let body = "name=fan-tastic.z&email=fantastic.fun.zf@gmail.com";
-
+    let name: String = Name().fake();
+    let email: String = SafeEmail().fake();
+    let body = serde_urlencoded::to_string(serde_json::json!({
+        "name": name,
+        "email": email
+    }))
+    .unwrap();
     let _mock_guard = Mock::given(path("/email"))
         .and(method("POST"))
         .respond_with(ResponseTemplate::new(200))
@@ -326,7 +352,7 @@ pub async fn create_unconfirmed_subscriber(app: Router, test_app: &TestApp) -> C
         .expect(1)
         .mount_as_scoped(&test_app.email_server)
         .await;
-    post_subscriptions(app, body).await;
+    post_subscriptions(app, &body).await;
     let email_request = test_app
         .email_server
         .received_requests()

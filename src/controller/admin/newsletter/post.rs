@@ -1,11 +1,10 @@
 use axum::{debug_handler, extract::State, response::Response, Extension, Form};
 use axum_messages::Messages;
-use sqlx::PgPool;
+use sqlx::{Executor, Postgres, Transaction};
 use uuid::Uuid;
 
 use crate::{
     controller::format,
-    domain::SubscriberEmail,
     errors::Error,
     idempotency::{save_response, try_processing, IdempotencyKey, NextAction},
     startup::AppState,
@@ -32,64 +31,73 @@ pub async fn publish_newsletter(
         .try_into()
         .map_err(|_| Error::InvalidIdempotencyKey)?;
 
-    let transaction = match try_processing(&state.db_pool, &idempotency_key, user_id).await? {
+    let mut transaction = match try_processing(&state.db_pool, &idempotency_key, user_id).await? {
         NextAction::StartProcessing(t) => t,
         NextAction::ReturnSavedResponse(response) => {
             messages.info("The newsletter issue has been published!");
             return Ok(response);
         }
     };
-    let subscribers = get_confirmed_subscribers(&state.db_pool).await?;
-    for subscriber in subscribers {
-        match subscriber {
-            Ok(subscriber) => {
-                state
-                    .email_client
-                    .send_email(
-                        subscriber.email,
-                        &params.title,
-                        &params.html_content,
-                        &params.text_content,
-                    )
-                    .await?;
-            }
-            Err(_) => {
-                tracing::warn!(
-                    "Skipping a confirmed subscriber. \
-                Their stored contact detail are invalid"
-                )
-            }
-        }
-    }
-    messages.info("The newsletter issue has been published!");
+    let issue_id = insert_newsletter_issue(
+        &mut transaction,
+        &params.title,
+        &params.text_content,
+        &params.html_content,
+    )
+    .await?;
+
+    enqueue_delivery_tasks(&mut transaction, issue_id).await?;
+
     let response = format::render().redirect("/admin/newsletters")?;
     let response = save_response(transaction, &idempotency_key, user_id, response).await?;
+    messages.info("The newsletter issue has been published!");
     Ok(response)
 }
 
-#[derive(sqlx::FromRow, Debug)]
-struct ConfirmedSubscriber {
-    email: SubscriberEmail,
+async fn insert_newsletter_issue(
+    transaction: &mut Transaction<'static, Postgres>,
+    title: &str,
+    text_content: &str,
+    html_content: &str,
+) -> Result<Uuid> {
+    let newsletter_issue_id = Uuid::new_v4();
+    let query = sqlx::query(
+        r#"
+        INSERT INTO newsletter_issues (
+            newsletter_issue_id,
+            title,
+            text_content,
+            html_content,
+            published_at
+        )
+        VALUES ($1, $2, $3, $4, now())
+        "#,
+    )
+    .bind(newsletter_issue_id)
+    .bind(title)
+    .bind(text_content)
+    .bind(html_content);
+    transaction.execute(query).await?;
+    Ok(newsletter_issue_id)
 }
 
-async fn get_confirmed_subscribers(pool: &PgPool) -> Result<Vec<Result<ConfirmedSubscriber>>> {
-    #[derive(sqlx::FromRow, Debug)]
-    struct Row {
-        email: String,
-    }
-    let rows = sqlx::query_as::<_, Row>(
+async fn enqueue_delivery_tasks(
+    transaction: &mut Transaction<'static, Postgres>,
+    newsletter_issue_id: Uuid,
+) -> Result<()> {
+    let query = sqlx::query(
         r#"
-        SELECT email FROM subscriptions WHERE status = 'confirmed'
-    "#,
+        INSERT INTO issue_delivery_queue (
+            newsletter_issue_id,
+            subscriber_email
+        )
+        SELECT $1, email
+        FROM subscriptions
+        WHERE status = 'confirmed'
+        "#,
     )
-    .fetch_all(pool)
-    .await?;
-    let confirmed_subscribers: Vec<Result<ConfirmedSubscriber>> = rows
-        .into_iter()
-        .map(|r| match SubscriberEmail::parse(r.email) {
-            Ok(email) => Ok(ConfirmedSubscriber { email }),
-            Err(e) => Err(e),
-        })
-        .collect();
-    Ok(confirmed_subscribers)
+    .bind(newsletter_issue_id);
+
+    transaction.execute(query).await?;
+    Ok(())
 }

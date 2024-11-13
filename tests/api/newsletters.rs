@@ -35,6 +35,7 @@ async fn newsletters_are_not_delivered_to_unconfirmed_subscribers() {
         .post_newsletter_with_cookie(&newsletter_request_body, &cookie)
         .await;
     assert_response_redirect_to(response, "/admin/newsletters");
+    test_app.dispatch_all_pending_emails().await;
 }
 
 #[tokio::test]
@@ -60,6 +61,7 @@ async fn newsletters_are_delivered_to_confirmed_subscribers() {
         .post_newsletter_with_cookie(&newsletter_request_body, &cookie)
         .await;
     assert_response_redirect_to(response, "/admin/newsletters");
+    test_app.dispatch_all_pending_emails().await;
 }
 
 #[tokio::test]
@@ -96,8 +98,8 @@ async fn concurrent_from_submission_is_handled_gracefully() {
     // TODO: expect 1 ?
     Mock::given(path("/email"))
         .and(method("POST"))
-        .respond_with(ResponseTemplate::new(200).set_delay(Duration::from_secs(2)))
-        .expect(2)
+        .respond_with(ResponseTemplate::new(200).set_delay(Duration::from_secs(5)))
+        .expect(1)
         .mount(&test_app.email_server)
         .await;
     let newsletter_request_body = serde_json::json!({
@@ -110,4 +112,5 @@ async fn concurrent_from_submission_is_handled_gracefully() {
     let response2 = test_app.post_newsletter_with_cookie(&newsletter_request_body, &cookie);
     let (response1, response2) = tokio::join!(response1, response2);
     assert_eq!(response1.status(), response2.status());
+    test_app.dispatch_all_pending_emails().await;
 }
