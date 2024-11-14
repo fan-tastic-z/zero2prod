@@ -79,7 +79,12 @@ pub async fn try_execute_task(
 type PgTransaction = Transaction<'static, Postgres>;
 async fn dequeue_task(pool: &PgPool) -> Result<Option<(PgTransaction, Uuid, String)>> {
     let mut transaction = pool.begin().await?;
-    let r = sqlx::query!(
+    #[derive(FromRow)]
+    struct Row {
+        newsletter_issue_id: Uuid,
+        subscriber_email: String,
+    }
+    let r: Option<Row> = sqlx::query_as(
         r#"
         SELECT newsletter_issue_id, subscriber_email
         FROM issue_delivery_queue
